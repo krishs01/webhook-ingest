@@ -60,4 +60,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("shutdown", "err", err)
 	}
+
+	// Wait for in-flight recording goroutines to finish so work is not
+	// lost on deploy.
+	svc.Shutdown()
+	log.Info("shutdown complete")
 }

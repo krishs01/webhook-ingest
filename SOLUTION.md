@@ -25,6 +25,8 @@ I used a Postgres `UNIQUE` index on `events.event_id` combined with `INSERT ... 
 
 **Trade-off acknowledged:** This approach means every insert does a uniqueness check against the index, which adds a small amount of I/O. For the current throughput this is negligible.
 
+**Verified under real contention, not just sequential duplicates:** `TestConcurrentDuplicateDelivery` fires 20 goroutines that all POST the same `event_id` at the same instant (synchronised via a channel, not just a loop). After all 20 requests return `200 OK`, exactly one row exists in `events` and `account_stats.call_count == 1`. This is the test that would have failed against the old check-then-insert (`EventExists` → `InsertEvent`) pattern, since that TOCTOU window only opens under genuine concurrency — a sequential test can't expose it.
+
 ## What I would change at 10,000 webhooks/second
 
 - **Batch inserts with a write buffer.** Instead of one `INSERT` per request, buffer incoming events in memory (or a Redis list) and flush batches of 100–500 rows using `COPY` or multi-row `INSERT ... ON CONFLICT`. This amortises round-trip and WAL costs.

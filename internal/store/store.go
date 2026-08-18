@@ -58,27 +58,20 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 // Close releases all pooled connections.
 func (s *Store) Close() { s.pool.Close() }
 
-// EventExists reports whether an event with this ID has already been stored.
-func (s *Store) EventExists(ctx context.Context, eventID string) (bool, error) {
-	var one int
-	err := s.pool.QueryRow(ctx,
-		`SELECT 1 FROM events WHERE event_id = $1 LIMIT 1`, eventID).Scan(&one)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
+// InsertEvent stores the raw delivery. If the event_id already exists the
+// insert is silently skipped thanks to the UNIQUE index. The returned bool
+// indicates whether a new row was actually created (true) or the event was
+// a duplicate (false).
+func (s *Store) InsertEvent(ctx context.Context, e Event) (inserted bool, err error) {
+	ct, err := s.pool.Exec(ctx,
+		`INSERT INTO events (event_id, call_id, account_id, payload)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (event_id) DO NOTHING`,
+		e.EventID, e.CallID, e.AccountID, e.Payload)
 	if err != nil {
 		return false, err
 	}
-	return true, nil
-}
-
-// InsertEvent stores the raw delivery.
-func (s *Store) InsertEvent(ctx context.Context, e Event) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO events (event_id, call_id, account_id, payload)
-		 VALUES ($1, $2, $3, $4)`,
-		e.EventID, e.CallID, e.AccountID, e.Payload)
-	return err
+	return ct.RowsAffected() == 1, nil
 }
 
 // UpsertCall creates or refreshes the call record for this event.

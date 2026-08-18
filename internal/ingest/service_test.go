@@ -43,16 +43,17 @@ func TestWebhookStoresEventAndCall(t *testing.T) {
 		t.Fatalf("got %d, want 200", resp.StatusCode)
 	}
 
-	exists, err := st.EventExists(ctx, eventID)
-	if err != nil {
-		t.Fatalf("EventExists: %v", err)
+	var eventCount int
+	row := st.Pool().QueryRow(ctx, `SELECT count(*) FROM events WHERE event_id = $1`, eventID)
+	if err := row.Scan(&eventCount); err != nil {
+		t.Fatalf("count events: %v", err)
 	}
-	if !exists {
-		t.Fatal("expected the event to be stored")
+	if eventCount != 1 {
+		t.Fatalf("expected 1 event row, got %d", eventCount)
 	}
 
 	var gotAccount string
-	row := st.Pool().QueryRow(ctx, `SELECT account_id FROM calls WHERE call_id = $1`, callID)
+	row = st.Pool().QueryRow(ctx, `SELECT account_id FROM calls WHERE call_id = $1`, callID)
 	if err := row.Scan(&gotAccount); err != nil {
 		t.Fatalf("expected a call record for %s: %v", callID, err)
 	}
@@ -73,6 +74,7 @@ func TestDuplicateDeliveryIsIgnored(t *testing.T) {
 		}
 	}
 
+	// Only one event row should exist.
 	var n int
 	row := st.Pool().QueryRow(ctx, `SELECT count(*) FROM events WHERE event_id = $1`, eventID)
 	if err := row.Scan(&n); err != nil {
@@ -80,5 +82,16 @@ func TestDuplicateDeliveryIsIgnored(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("stored %d copies of %s, want 1", n, eventID)
+	}
+
+	// Account stats must reflect exactly one call, not three.
+	var callCount int64
+	row = st.Pool().QueryRow(ctx,
+		`SELECT call_count FROM account_stats WHERE account_id = $1`, accountID)
+	if err := row.Scan(&callCount); err != nil {
+		t.Fatalf("account_stats scan: %v", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("account_stats.call_count = %d, want 1", callCount)
 	}
 }
